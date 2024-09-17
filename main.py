@@ -10,8 +10,9 @@ requests = {
     'securities': 'https://iss.moex.com/iss/securities.csv?&engine=%(engine)s&market=%(market)s&start=%(start)s&limit=%(limit)s'
 }
 
-MOEX = ['IMOEX', 'AFKS', 'AFLT', 'AGRO', 'ALRS', 'SBPB', 'CBOM', 'CHMF', 'ENPG', 'FEES', 'FIVE', 'FLOT', ' GAZP', 'GLTR', 'GMKN',
-        'HYDR', 'IRAO', 'LEAS', 'LKOH', 'MAGN', ' MGNT', 'MOEX', 'MSNG', 'MTLR', 'MTLRP', 'MTSS', 'NLMK', 'NVTK',
+MOEX = ['AFKS', 'AFLT', 'AGRO', 'ALRS', 'BSPB', 'CBOM', 'CHMF', 'ENPG', 'FEES', 'FLOT', 'GAZP',
+        'GLTR', 'GMKN', 'FIVE',
+        'HYDR', 'IRAO', 'LEAS', 'LKOH', 'MAGN', 'MGNT', 'MOEX', 'MSNG', 'MTLR', 'MTLRP', 'MTSS', 'NLMK', 'NVTK',
         'OZON', 'PHOR', 'PIKK', 'PLZL', 'POSI', 'ROSN', 'RTKM', 'RUAL', 'SBER', 'SBERP', 'SELG', 'SGZH', 'SMLT', 'SNGS',
         'SNGSP', 'TATN', 'TATNP', 'TCSG', 'TRNFP', 'UPRO', 'VKCO', 'VTBR']
 
@@ -57,30 +58,25 @@ def all_securities(pool, rows, engine='stock', market='shares'):
         limit = 100 if rows - start <= 100 else rows - start
         sec = to_df(get_securities(pool, engine, market, start, limit))
         secs = secs + sec['secid'].tolist()
-    print(secs)
     return secs
 
 
 def volumes(pool, securities, date_from, date_till):
-    data = {'Тикер': securities}
+    dates = [date.date() for date in pd.date_range(date_from, date_till, freq='D')]
+    data = {'Ticker': securities, **dict(zip([date.isoformat() for date in dates], [float('NaN')] * len(dates)))}
     df = pd.DataFrame(data)
-    df = df.set_index('Тикер')
-    start_date = datetime.date.fromisoformat(date_from)
-    end_date = datetime.date.fromisoformat(date_till)
-    while start_date <= end_date:
-        print(start_date.isoformat())
-        df[start_date.isoformat()] = ''
-        for sec in securities:
-            candle_df = to_df(
-                get_candles(pool, security=sec, date_from=start_date.isoformat(),
-                            date_till=start_date.isoformat(),
-                            interval=24))
-            vals = candle_df['value'].values
-            if len(vals) != 0:
-                df.at[sec, start_date.isoformat()] = vals[0]
-        start_date = start_date + datetime.timedelta(days=1)
+    start_date = dates[0]
+    for security in securities:
+        while start_date <= dates[-1]:
+            end_date = start_date + datetime.timedelta(days=100) if (start_date + datetime.timedelta(days=100)
+                                                                     <= dates[-1]) else dates[-1]
+            candle_df = to_df(get_candles(pool, security, start_date.isoformat(), end_date.isoformat(), 24))
+            df.loc[df['Ticker'] == security, [value.split(' ')[0] for value in candle_df['begin'].values]] = \
+                                                                                    candle_df['value'].values
+            start_date = end_date + datetime.timedelta(days=1)
+        start_date = dates[0]
+        df = df.dropna(axis=1, how='all')
     return df
-
 
 if __name__ == '__main__':
     http = urllib3.PoolManager()
@@ -89,5 +85,5 @@ if __name__ == '__main__':
     all = all_securities(http, 500)
     securities = list(filter(lambda x: len(x) < 6, all))
 
-    df = volumes(http, MOEX, date_from='2024-01-01', date_till='2024-09-15')
+    df = volumes(http, MOEX, date_from='2024-01-01', date_till='2024-09-17')
     df.to_excel('volumes.xlsx')
